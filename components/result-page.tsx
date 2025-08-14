@@ -136,10 +136,10 @@ Te contactaremos pronto con el resultado. ¿Tenés alguna consulta?`
                       <SelectValue placeholder="Seleccionar cuotas" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="12">12 cuotas</SelectItem>
-                      <SelectItem value="18">18 cuotas</SelectItem>
-                      <SelectItem value="24">24 cuotas</SelectItem>
-                      <SelectItem value="36">36 cuotas</SelectItem>
+                      <SelectItem value="4">4 cuotas</SelectItem>
+                      <SelectItem value="6">6 cuotas</SelectItem>
+                      <SelectItem value="8">8 cuotas</SelectItem>
+                      <SelectItem value="10">10 cuotas</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -183,7 +183,7 @@ Te contactaremos pronto con el resultado. ¿Tenés alguna consulta?`
               disabled={result.resultado === "aprobado" && (!selectedAmount || !selectedInstallments)}
               onClick={() => {
                 const message = generateWhatsAppMessage()
-                window.open(`https://wa.me/5491123456789?text=${message}`, "_blank")
+                window.open(`https://wa.me/5491169770385?text=${message}`, "_blank")
               }}
             >
               <MessageCircle className="h-5 w-5 mr-2" />

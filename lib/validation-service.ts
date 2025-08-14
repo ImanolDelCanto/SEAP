@@ -36,27 +36,58 @@ const clientesMorosos = [
   { dni: "11223344", tieneCredito: true, montoDeuda: 25000 },
 ]
 
-const bancosData = [
+const bancosHabilitados = [
   { id: "nacion", nombre: "Banco Nación", restricciones: false, situacion: 1, requiereCuenta: false },
   { id: "macro", nombre: "Banco Macro", restricciones: true, situacion: 2, requiereCuenta: true },
-  { id: "santander", nombre: "Banco Santander", restricciones: false, situacion: 1, requiereCuenta: false },
+  { id: "santander", nombre: "Banco Santander", restricciones: false, situacion: 2, requiereCuenta: false },
   { id: "galicia", nombre: "Banco Galicia", restricciones: false, situacion: 2, requiereCuenta: false },
   { id: "bbva", nombre: "BBVA", restricciones: true, situacion: 3, requiereCuenta: false },
   { id: "icbc", nombre: "ICBC", restricciones: false, situacion: 1, requiereCuenta: false },
+  { id: "supervielle", nombre: "Banco Supervielle", restricciones: false, situacion: 2, requiereCuenta: false },
+]
+
+const provinciasHabilitadas = [
+  "Buenos Aires",
+  "CABA",
+  "Córdoba",
+  "Santa Fe",
+  "Mendoza",
+  "Tucumán",
+  "Entre Ríos",
+  "Salta",
+  "Misiones",
+  "Chaco",
+  "Corrientes",
+  "Santiago del Estero",
+  "San Juan",
+  "Jujuy",
+  "Río Negro",
 ]
 
 export class ValidationService {
-  // Validación 1: Base Protecap
+  static validateSueldoMinimo(sueldoNeto: number): ValidationResult {
+    if (sueldoNeto < 500000) {
+      return {
+        success: false,
+        message: "Sueldo insuficiente. Mínimo requerido: $500.000",
+        details: { sueldoMinimo: 500000, sueldoActual: sueldoNeto },
+      }
+    }
+
+    return {
+      success: true,
+      message: "Sueldo cumple requisitos mínimos",
+      details: { sueldoActual: sueldoNeto },
+    }
+  }
+
+  // Validación 1: Base Protecap (sin cambios - ya sigue el diagrama)
   static async validateProtecap(dni: string): Promise<ValidationResult> {
-    console.log(`🔍 ValidationService: Iniciando validación Protecap para DNI ${dni}`)
-    
-    // Simular delay de consulta
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     const cliente = clientesMorosos.find((c) => c.dni === dni)
 
     if (cliente?.tieneCredito) {
-      console.log(`❌ ValidationService: Cliente ${dni} encontrado en base Protecap con deuda de $${cliente.montoDeuda}`)
       return {
         success: false,
         message: "Cliente con crédito activo en base Protecap",
@@ -64,7 +95,6 @@ export class ValidationService {
       }
     }
 
-    console.log(`✅ ValidationService: Cliente ${dni} sin créditos activos en Protecap`)
     return {
       success: true,
       message: "Cliente sin créditos activos en Protecap",
@@ -72,116 +102,50 @@ export class ValidationService {
     }
   }
 
-  static async validateBCRA(dni: string): Promise<ValidationResult> {
-    console.log(`🏦 ValidationService: Iniciando validación BCRA para DNI ${dni}`)
-    
+  static async validateBCRA(
+    dni: string,
+  ): Promise<ValidationResult & { situacion5?: boolean; porcentajeProblematicas?: number }> {
     try {
-      // Convertir DNI a CUIT si es necesario
       const cuit = BCRAService.validateCuit(dni) ? dni : BCRAService.dniToCuit(dni)
-      console.log(`🔄 ValidationService: Usando CUIT ${cuit} para consulta BCRA`)
-
       let bcraResponse: BCRAResponse
 
       try {
-        // Intentar consulta real a BCRA
-        console.log("📡 ValidationService: Realizando consulta real a BCRA...")
         bcraResponse = await BCRAService.consultarDeudas(cuit)
-        console.log("✅ ValidationService: Consulta BCRA completada exitosamente")
       } catch (error) {
         const errorMessage = (error as Error).message
-        console.error(`❌ ValidationService: Error en consulta BCRA: ${errorMessage}`)
 
-        // Manejar errores específicos
-        switch (errorMessage) {
-          case "TOKEN_NOT_CONFIGURED":
-            console.warn("🎭 ValidationService: Token BCRA no configurado, usando simulación")
-            bcraResponse = BCRAService.generateMockResponse(cuit)
-            break
-
-          case "TIMEOUT":
-            console.error("⏱️ ValidationService: Timeout en consulta BCRA")
-            return {
-              success: false,
-              message: "Timeout en consulta BCRA - Pendiente revisión manual",
-              details: { error: "timeout", requiresManualReview: true },
-            }
-
-          case "MAX_RETRIES_EXCEEDED":
-            console.error("🔄 ValidationService: Máximo de reintentos excedido en BCRA")
-            return {
-              success: false,
-              message: "Error de conexión con BCRA - Pendiente revisión manual",
-              details: { error: "connection_failed", requiresManualReview: true },
-            }
-
-          default:
-            if (errorMessage.startsWith("HTTP_ERROR_")) {
-              const statusCode = errorMessage.replace("HTTP_ERROR_", "")
-              console.error(`🚫 ValidationService: Error HTTP ${statusCode} en BCRA`)
-              return {
-                success: false,
-                message: `Error HTTP ${statusCode} en consulta BCRA - Pendiente revisión manual`,
-                details: { error: "http_error", statusCode, requiresManualReview: true },
-              }
-            }
-
-            // Error desconocido
-            console.error("❓ ValidationService: Error desconocido en consulta BCRA")
-            return {
-              success: false,
-              message: "Error técnico en consulta BCRA - Pendiente revisión manual",
-              details: { error: "unknown", requiresManualReview: true },
-            }
+        if (errorMessage === "TOKEN_NOT_CONFIGURED") {
+          console.warn("Token BCRA no configurado, usando simulación")
+          bcraResponse = BCRAService.generateMockResponse(cuit)
+        } else {
+          return {
+            success: false,
+            message: "Error técnico en consulta BCRA - Pendiente revisión manual",
+            details: { error: errorMessage, requiresManualReview: true },
+          }
         }
       }
 
-      console.log(`📊 ValidationService: Analizando resultado BCRA:`, {
-        totalEntidades: bcraResponse.resumen.totalEntidades,
-        inhabilitado: bcraResponse.inhabilitado,
-        situacion5: bcraResponse.resumen.situacion5
-      })
+      // Paso 1: Verificar situación 5 (inhabilitado)
+      const situacion5 = bcraResponse.inhabilitado || bcraResponse.resumen.situacion5 > 0
 
-      // Verificar si está inhabilitado (situación 5)
-      if (bcraResponse.inhabilitado) {
-        console.log(`🚫 ValidationService: Cliente inhabilitado (Situación 5): ${bcraResponse.resumen.situacion5} casos`)
-        return {
-          success: false,
-          message: "Cliente inhabilitado en BCRA (Situación 5)",
-          details: {
-            bcraData: bcraResponse,
-            situacion5Count: bcraResponse.resumen.situacion5,
-          },
-        }
-      }
-
-      // Calcular porcentaje de situaciones problemáticas (3, 4, 5)
+      // Paso 2: Calcular porcentaje de situaciones problemáticas (3, 4, 5)
       const totalProblematicas =
         bcraResponse.resumen.situacion3 + bcraResponse.resumen.situacion4 + bcraResponse.resumen.situacion5
-
       const porcentajeProblematicas =
         bcraResponse.resumen.totalEntidades > 0 ? (totalProblematicas / bcraResponse.resumen.totalEntidades) * 100 : 0
 
-      console.log(`📈 ValidationService: Análisis de situaciones problemáticas:`, {
-        totalProblematicas,
-        totalEntidades: bcraResponse.resumen.totalEntidades,
-        porcentaje: `${porcentajeProblematicas.toFixed(1)}%`,
-        montoTotal: bcraResponse.resumen.montoTotal
-      })
-
+      // Según diagrama: si tiene 40% o más de sit. 3, 4, o 5 = Rechazado
       if (porcentajeProblematicas >= 40) {
-        console.log(`❌ ValidationService: Porcentaje problemático muy alto: ${porcentajeProblematicas.toFixed(1)}%`)
         return {
           success: false,
           message: `Porcentaje alto de situaciones problemáticas: ${porcentajeProblematicas.toFixed(1)}%`,
-          details: {
-            bcraData: bcraResponse,
-            porcentajeProblematicas,
-            totalProblematicas,
-          },
+          details: { bcraData: bcraResponse, porcentajeProblematicas, totalProblematicas },
+          situacion5,
+          porcentajeProblematicas,
         }
       }
 
-      console.log(`✅ ValidationService: BCRA favorable con ${porcentajeProblematicas.toFixed(1)}% situaciones problemáticas`)
       return {
         success: true,
         message: `Situación BCRA favorable: ${porcentajeProblematicas.toFixed(1)}% situaciones problemáticas`,
@@ -189,67 +153,34 @@ export class ValidationService {
           bcraData: bcraResponse,
           porcentajeProblematicas,
           totalEntidades: bcraResponse.resumen.totalEntidades,
-          montoTotal: bcraResponse.resumen.montoTotal,
         },
+        situacion5,
+        porcentajeProblematicas,
       }
     } catch (error) {
-      console.error("💥 ValidationService: Error inesperado en validación BCRA:", error)
       return {
         success: false,
-        message: "Error técnico en validación BCRA - Pendiente revisión manual",
+        message: "Error técnico en validación BCRA",
         details: { error: "unexpected_error", requiresManualReview: true },
       }
     }
   }
 
-  // Validación 3: Banco Pagador
   static async validateBanco(clienteData: ClienteData): Promise<ValidationResult> {
-    console.log(`🏪 ValidationService: Iniciando validación banco ${clienteData.bancoPagador}`)
-    
     await new Promise((resolve) => setTimeout(resolve, 800))
 
-    const banco = bancosData.find((b) => b.id === clienteData.bancoPagador)
+    const banco = bancosHabilitados.find((b) => b.id === clienteData.bancoPagador)
 
     if (!banco) {
-      console.error(`❌ ValidationService: Banco ${clienteData.bancoPagador} no encontrado`)
       return {
         success: false,
-        message: "Banco no encontrado",
+        message: "Banco no habilitado",
         details: {},
       }
     }
 
-    console.log(`🏪 ValidationService: Validando ${banco.nombre}:`, {
-      restricciones: banco.restricciones,
-      situacion: banco.situacion,
-      requiereCuenta: banco.requiereCuenta,
-      sueldoCliente: clienteData.sueldoNeto,
-      tipoEmpleado: clienteData.tipoEmpleado
-    })
-
-    // Validar restricciones por sueldo
-    if (banco.restricciones && clienteData.sueldoNeto < 650000) {
-      console.log(`❌ ValidationService: Sueldo insuficiente para ${banco.nombre}: $${clienteData.sueldoNeto} < $650.000`)
-      return {
-        success: false,
-        message: `${banco.nombre} requiere sueldo mínimo de $650.000`,
-        details: { banco, requiredSalary: 650000 },
-      }
-    }
-
-    // Validar situación bancaria
-    if (banco.situacion >= 4) {
-      console.log(`❌ ValidationService: ${banco.nombre} en situación ${banco.situacion} - No habilitado`)
-      return {
-        success: false,
-        message: `${banco.nombre} en situación ${banco.situacion} - No habilitado`,
-        details: { banco },
-      }
-    }
-
-    // Validar restricción Banco Macro + Empleado Privado
+    // Según diagrama: Banco Macro + Empleado Privado = Rechazado
     if (banco.id === "macro" && clienteData.tipoEmpleado === "privado") {
-      console.log(`❌ ValidationService: Banco Macro no acepta empleados privados`)
       return {
         success: false,
         message: "Banco Macro no acepta empleados privados",
@@ -257,9 +188,26 @@ export class ValidationService {
       }
     }
 
+    // Validar restricciones por sueldo (bancos con restricciones requieren >650.000)
+    if (banco.restricciones && clienteData.sueldoNeto <= 650000) {
+      return {
+        success: false,
+        message: `${banco.nombre} requiere sueldo superior a $650.000`,
+        details: { banco, requiredSalary: 650000 },
+      }
+    }
+
+    // Según diagrama: Situación 4 o 5 = Rechazado
+    if (banco.situacion >= 4) {
+      return {
+        success: false,
+        message: `${banco.nombre} en situación ${banco.situacion} - No habilitado`,
+        details: { banco },
+      }
+    }
+
     // Validar número de cuenta para Banco Macro
     if (banco.requiereCuenta && (!clienteData.numeroCuenta || clienteData.numeroCuenta.trim() === "")) {
-      console.log(`❌ ValidationService: ${banco.nombre} requiere número de cuenta`)
       return {
         success: false,
         message: `${banco.nombre} requiere número de cuenta`,
@@ -267,10 +215,8 @@ export class ValidationService {
       }
     }
 
-    // Simular validación de cuenta bloqueada (5% probabilidad)
-    const randomCheck = Math.random()
-    if (randomCheck < 0.05) {
-      console.log(`❌ ValidationService: Cuenta bancaria bloqueada (simulación)`)
+    // Simular validación de cuenta bloqueada para Banco Macro
+    if (banco.id === "macro" && clienteData.numeroCuenta && Math.random() < 0.1) {
       return {
         success: false,
         message: "Cuenta bancaria bloqueada",
@@ -278,7 +224,6 @@ export class ValidationService {
       }
     }
 
-    console.log(`✅ ValidationService: ${banco.nombre} habilitado correctamente`)
     return {
       success: true,
       message: `${banco.nombre} habilitado`,
@@ -286,207 +231,146 @@ export class ValidationService {
     }
   }
 
-  // Cálculo de monto máximo según todas las reglas
   static calculateMaxAmount(
     clienteData: ClienteData,
-    validationResults: { bcra: ValidationResult; banco: ValidationResult },
+    bcraResult: ValidationResult & { situacion5?: boolean },
+    bancoResult: ValidationResult,
   ): number {
-    console.log(`💰 ValidationService: Calculando monto máximo para cliente:`, {
-      sueldo: clienteData.sueldoNeto,
-      tipoEmpleado: clienteData.tipoEmpleado
-    })
+    const { sueldoNeto, tipoEmpleado } = clienteData
+    const banco = bancoResult.details?.banco
+    const situacion5 = bcraResult.situacion5
 
-    let baseAmount = 0
-
-    // Paso 1: Clasificación por sueldo
-    if (clienteData.sueldoNeto >= 1000000) {
-      baseAmount = 200000
-      console.log(`💰 ValidationService: Sueldo ≥ $1.000.000 → Monto base: $${baseAmount}`)
-    } else if (clienteData.sueldoNeto >= 800000) {
-      baseAmount = 150000
-      console.log(`💰 ValidationService: Sueldo ≥ $800.000 → Monto base: $${baseAmount}`)
-    } else if (clienteData.sueldoNeto >= 500000) {
-      baseAmount = 100000
-      console.log(`💰 ValidationService: Sueldo ≥ $500.000 → Monto base: $${baseAmount}`)
-    } else {
-      console.log(`❌ ValidationService: Sueldo < $500.000 → No califica para préstamo`)
+    // Si tiene situación 5: Máximo 100.000 (según diagrama)
+    if (situacion5) {
+      return 100000
     }
 
-    // Paso 2: Ajuste por tipo de empleado
-    if (clienteData.tipoEmpleado === "publico" || clienteData.tipoEmpleado === "jubilado") {
-      // Público/Jubilado: máximo $200,000
-      const oldAmount = baseAmount
-      baseAmount = Math.min(baseAmount, 200000)
-      if (oldAmount !== baseAmount) {
-        console.log(`💰 ValidationService: Ajuste empleado público/jubilado: $${oldAmount} → $${baseAmount}`)
+    // Calificación final según tabla del diagrama
+    let montoMaximo = 0
+
+    if (sueldoNeto > 1000000) {
+      // Sueldo superior a 1.000.000
+      if (tipoEmpleado === "publico" || tipoEmpleado === "jubilado") {
+        montoMaximo = 200000
+      } else if (tipoEmpleado === "privado") {
+        montoMaximo = 150000
       }
-    } else if (clienteData.tipoEmpleado === "privado") {
-      // Privado: máximo $150,000
-      const oldAmount = baseAmount
-      baseAmount = Math.min(baseAmount, 150000)
-      if (oldAmount !== baseAmount) {
-        console.log(`💰 ValidationService: Ajuste empleado privado: $${oldAmount} → $${baseAmount}`)
+    } else if (sueldoNeto > 800000) {
+      // Sueldo superior a 800.000
+      if (tipoEmpleado === "publico" || tipoEmpleado === "jubilado") {
+        montoMaximo = 150000
+      } else if (tipoEmpleado === "privado") {
+        montoMaximo = 100000
       }
+    } else if (sueldoNeto > 500000) {
+      // Sueldo superior a 500.000
+      montoMaximo = 100000 // Tanto público como privado
     }
 
-    // Paso 3: Ajuste por situación bancaria
-    const bancoDetails = validationResults.banco.details?.banco
-    if (bancoDetails?.situacion === 3) {
-      // Banco situación 3: máximo $150,000
-      const oldAmount = baseAmount
-      baseAmount = Math.min(baseAmount, 150000)
-      if (oldAmount !== baseAmount) {
-        console.log(`💰 ValidationService: Ajuste banco situación 3: $${oldAmount} → $${baseAmount}`)
-      }
+    // Ajuste por situación del banco pagador
+    if (banco?.situacion === 3) {
+      // Banco pagador máximo en situación 3: Máximo 150.000
+      montoMaximo = Math.min(montoMaximo, 150000)
     }
 
-    const bcraDetails = validationResults.bcra.details
-    if (bcraDetails?.porcentajeProblematicas > 20) {
-      // Si tiene entre 20-40% situaciones problemáticas, reducir monto
-      const oldAmount = baseAmount
-      baseAmount = Math.min(baseAmount, 100000)
-      if (oldAmount !== baseAmount) {
-        console.log(`💰 ValidationService: Ajuste BCRA >20% problemáticas: $${oldAmount} → $${baseAmount}`)
-      }
-    }
-
-    // Ajuste adicional por monto total de deudas BCRA
-    if (bcraDetails?.montoTotal > 100000) {
-      const oldAmount = baseAmount
-      baseAmount = Math.min(baseAmount, 100000)
-      if (oldAmount !== baseAmount) {
-        console.log(`💰 ValidationService: Ajuste deudas BCRA >$100k: $${oldAmount} → $${baseAmount}`)
-      }
-    }
-
-    console.log(`✅ ValidationService: Monto máximo final calculado: $${baseAmount}`)
-    return baseAmount
+    return montoMaximo
   }
 
-  // Evaluación completa
   static async evaluateCliente(clienteData: ClienteData): Promise<EvaluationResult> {
-    console.log(`🎯 ValidationService: INICIANDO EVALUACIÓN COMPLETA`)
-    console.log(`👤 Cliente: ${clienteData.nombre} ${clienteData.apellido} (${clienteData.dni})`)
-    console.log(`💼 Datos laborales: ${clienteData.tipoEmpleado} - $${clienteData.sueldoNeto} - ${clienteData.bancoPagador}`)
-    
-    const startTime = Date.now()
+    // PRIMERA PÁGINA - Validaciones automáticas
 
-    try {
-      // Validación 1: Protecap
-      console.log(`\n📋 === PASO 1: VALIDACIÓN PROTECAP ===`)
-      const protecapResult = await this.validateProtecap(clienteData.dni)
+    // 1. Validar sueldo mínimo
+    const sueldoValidation = this.validateSueldoMinimo(clienteData.sueldoNeto)
+    if (!sueldoValidation.success) {
+      return {
+        resultado: "rechazado",
+        motivoRechazo: sueldoValidation.message,
+        detalles: {
+          protecap: { success: false, message: "No evaluado" },
+          bcra: { success: false, message: "No evaluado" },
+          banco: { success: false, message: "No evaluado" },
+        },
+      }
+    }
 
-      if (!protecapResult.success) {
-        const result = {
-          resultado: "rechazado" as const,
-          motivoRechazo: protecapResult.message,
+    // 2. Validación Protecap
+    const protecapResult = await this.validateProtecap(clienteData.dni)
+    if (!protecapResult.success) {
+      return {
+        resultado: "rechazado",
+        motivoRechazo: protecapResult.message,
+        detalles: {
+          protecap: protecapResult,
+          bcra: { success: false, message: "No evaluado" },
+          banco: { success: false, message: "No evaluado" },
+        },
+      }
+    }
+
+    // 3. Validación BCRA
+    const bcraResult = await this.validateBCRA(clienteData.dni)
+    if (!bcraResult.success) {
+      // Si es error técnico, marcar como pendiente
+      if (bcraResult.details?.requiresManualReview) {
+        return {
+          resultado: "pendiente",
+          motivoRechazo: bcraResult.message,
           detalles: {
             protecap: protecapResult,
-            bcra: { success: false, message: "No evaluado" },
+            bcra: bcraResult,
             banco: { success: false, message: "No evaluado" },
           },
         }
-        console.log(`❌ ValidationService: EVALUACIÓN RECHAZADA en Protecap - Tiempo total: ${Date.now() - startTime}ms`)
-        return result
-      }
-
-      // Validación 2: BCRA
-      console.log(`\n🏦 === PASO 2: VALIDACIÓN BCRA ===`)
-      const bcraResult = await this.validateBCRA(clienteData.dni)
-
-      if (!bcraResult.success) {
-        if (bcraResult.details?.requiresManualReview) {
-          const result = {
-            resultado: "pendiente" as const,
-            motivoRechazo: bcraResult.message,
-            detalles: {
-              protecap: protecapResult,
-              bcra: bcraResult,
-              banco: { success: false, message: "No evaluado" },
-            },
-          }
-          console.log(`⏳ ValidationService: EVALUACIÓN PENDIENTE por BCRA - Tiempo total: ${Date.now() - startTime}ms`)
-          return result
-        } else {
-          const result = {
-            resultado: "rechazado" as const,
-            motivoRechazo: bcraResult.message,
-            detalles: {
-              protecap: protecapResult,
-              bcra: bcraResult,
-              banco: { success: false, message: "No evaluado" },
-            },
-          }
-          console.log(`❌ ValidationService: EVALUACIÓN RECHAZADA por BCRA - Tiempo total: ${Date.now() - startTime}ms`)
-          return result
-        }
-      }
-
-      // Validación 3: Banco
-      console.log(`\n🏪 === PASO 3: VALIDACIÓN BANCO ===`)
-      const bancoResult = await this.validateBanco(clienteData)
-
-      if (!bancoResult.success) {
-        const result = {
-          resultado: "rechazado" as const,
-          motivoRechazo: bancoResult.message,
+      } else {
+        // Si es rechazo por 40% situaciones problemáticas
+        return {
+          resultado: "rechazado",
+          motivoRechazo: bcraResult.message,
           detalles: {
             protecap: protecapResult,
             bcra: bcraResult,
-            banco: bancoResult,
+            banco: { success: false, message: "No evaluado" },
           },
         }
-        console.log(`❌ ValidationService: EVALUACIÓN RECHAZADA por Banco - Tiempo total: ${Date.now() - startTime}ms`)
-        return result
       }
+    }
 
-      // Calcular monto máximo
-      console.log(`\n💰 === PASO 4: CÁLCULO DE MONTO ===`)
-      const montoMaximo = this.calculateMaxAmount(clienteData, { bcra: bcraResult, banco: bancoResult })
+    // SEGUNDA PÁGINA - Validaciones adicionales
 
-      if (montoMaximo === 0) {
-        const result = {
-          resultado: "rechazado" as const,
-          motivoRechazo: "No califica para monto mínimo de préstamo",
-          detalles: {
-            protecap: protecapResult,
-            bcra: bcraResult,
-            banco: bancoResult,
-            montoCalculado: 0,
-          },
-        }
-        console.log(`❌ ValidationService: EVALUACIÓN RECHAZADA por monto $0 - Tiempo total: ${Date.now() - startTime}ms`)
-        return result
-      }
-
-      const result = {
-        resultado: "aprobado" as const,
-        montoMaximo,
+    // 4. Validación Banco
+    const bancoResult = await this.validateBanco(clienteData)
+    if (!bancoResult.success) {
+      return {
+        resultado: "rechazado",
+        motivoRechazo: bancoResult.message,
         detalles: {
           protecap: protecapResult,
           bcra: bcraResult,
           banco: bancoResult,
-          montoCalculado: montoMaximo,
-        },
-      }
-
-      console.log(`\n🎉 === EVALUACIÓN APROBADA ===`)
-      console.log(`✅ Monto máximo aprobado: $${montoMaximo}`)
-      console.log(`⏱️ Tiempo total de evaluación: ${Date.now() - startTime}ms`)
-      
-      return result
-
-    } catch (error) {
-      console.error(`💥 ValidationService: Error inesperado en evaluación:`, error)
-      return {
-        resultado: "pendiente",
-        motivoRechazo: "Error técnico en evaluación - Pendiente revisión manual",
-        detalles: {
-          protecap: { success: false, message: "Error técnico" },
-          bcra: { success: false, message: "Error técnico" },
-          banco: { success: false, message: "Error técnico" },
         },
       }
     }
+
+    // CALIFICACIÓN FINAL
+    const montoMaximo = this.calculateMaxAmount(clienteData, bcraResult, bancoResult)
+
+    return {
+      resultado: "aprobado",
+      montoMaximo,
+      detalles: {
+        protecap: protecapResult,
+        bcra: bcraResult,
+        banco: bancoResult,
+        montoCalculado: montoMaximo,
+      },
+    }
+  }
+
+  static getBancosHabilitados() {
+    return bancosHabilitados
+  }
+
+  static getProvinciasHabilitadas() {
+    return provinciasHabilitadas
   }
 }

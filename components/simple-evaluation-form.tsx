@@ -31,7 +31,6 @@ export function SimpleEvaluationForm({ onEvaluationComplete }: SimpleEvaluationF
   })
 
   const handleInputChange = (field: keyof ClienteData, value: string | number) => {
-    console.log(`📝 Form: Campo ${field} actualizado:`, value)
     setFormData((prev) => ({
       ...prev,
       [field]: value,
@@ -40,41 +39,13 @@ export function SimpleEvaluationForm({ onEvaluationComplete }: SimpleEvaluationF
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log(`🚀 Form: Iniciando evaluación del cliente`)
-    console.log(`📊 Datos del formulario:`, {
-      ...formData,
-      numeroCuenta: formData.numeroCuenta ? '***' + formData.numeroCuenta.slice(-4) : undefined
-    })
-    
     setIsLoading(true)
 
     try {
-      const startTime = Date.now()
       const result = await ValidationService.evaluateCliente(formData)
-      const endTime = Date.now()
-      
-      console.log(`✅ Form: Evaluación completada en ${endTime - startTime}ms`)
-      console.log(`📋 Resultado:`, {
-        resultado: result.resultado,
-        montoMaximo: result.montoMaximo,
-        motivoRechazo: result.motivoRechazo
-      })
-      
       onEvaluationComplete(result)
     } catch (error) {
-      console.error("💥 Form: Error en evaluación:", error)
-      
-      // Mostrar un resultado de error al usuario
-      const errorResult: EvaluationResult = {
-        resultado: "pendiente",
-        motivoRechazo: "Error técnico durante la evaluación. Intente nuevamente.",
-        detalles: {
-          protecap: { success: false, message: "Error técnico" },
-          bcra: { success: false, message: "Error técnico" },
-          banco: { success: false, message: "Error técnico" },
-        }
-      }
-      onEvaluationComplete(errorResult)
+      console.error("Error en evaluación:", error)
     } finally {
       setIsLoading(false)
     }
@@ -88,11 +59,6 @@ export function SimpleEvaluationForm({ onEvaluationComplete }: SimpleEvaluationF
     formData.tipoEmpleado &&
     formData.provincia &&
     formData.bancoPagador
-
-  // Log cuando el formulario esté válido
-  if (isFormValid && !isLoading) {
-    console.log(`✅ Form: Formulario válido, listo para enviar`)
-  }
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
